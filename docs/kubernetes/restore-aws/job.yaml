@@ -1,0 +1,102 @@
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: restore-job
+  namespace: arkmanager
+data:
+  saveRootDirectory: "/ark/server/ShooterGame/Saved/"
+  backup.json: |
+    [
+      {
+        "backup": "s3://ark-backups/ark/backup/fjordur/2022-10-22/fjordur.2022-10-22_22.59.44.tar.bz2",
+        "restore": "ArkFjordurSave"
+      },
+      { 
+        "backup": "s3://ark-backups/ark/backup/aberration/2022-10-12/aberration.2022-10-12_22.05.00.tar.bz2",
+        "restore": "ArkAberrationSave2"
+      }
+    ]
+  restore.sh: |
+    #!/bin/sh
+    
+    yum install -y jq
+
+    echo "configuring s3..."
+    if test -f "/s3cfg/.s3cfg"; then
+      cp /s3cfg/.s3cfg /root/.s3cfg
+      echo "s3cmd configured"
+    else
+      echo "s3cmd is not configured"
+      exit 
+    fi
+
+    download(){    
+      mkdir -p /tmp/restore/$3/
+      s3cmd --force get $2 /tmp/restore/$3.tar.bz2
+
+      tar -xvjf /tmp/restore/$3.tar.bz2 -C /tmp/restore/$3/
+      mkdir -p ${1}${3}/
+      for f in /tmp/restore/$3/*/*; do
+        yes | cp -r "$f" ${1}${3}/
+      done
+    }
+
+    for backupItem in $(cat /restore/backup.json | jq -c ".[]");
+    do
+      backup=$(echo $backupItem | jq ".backup"  | sed s/\"//g)
+      restore=$(echo $backupItem | jq ".restore"  | sed s/\"//g)
+      echo $backup
+      echo $restore
+
+      download $saveRootDirectory $backup $restore
+    done
+
+    echo "passing ark ownership to steam user"
+    chown -R steam:steam /ark
+
+    echo "done"
+    sleep 15m
+
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: restore
+  namespace: arkmanager
+spec:
+  template:
+    spec:
+      containers:
+      - name: restore
+        image: aimvector/ark-server-tools:0.2.3
+        command: ['/bin/sh', '-c', '. /restore/restore.sh']
+        env:
+        - name: saveRootDirectory
+          valueFrom:
+            configMapKeyRef:
+              name: restore-job
+              key: saveRootDirectory
+        volumeMounts:
+        - name: restore
+          mountPath: /restore
+          readOnly: false
+        - name: backup-secret
+          mountPath: /s3cfg
+          readOnly: false
+        - name: ark
+          mountPath: /ark
+          readOnly: false
+      restartPolicy: Never
+      volumes:
+      - name: backup-secret
+        secret:
+          secretName: ark-backup
+      - name: restore
+        configMap:
+          name: restore-job
+          defaultMode: 075
+      - name: ark
+        hostPath:
+          path: /arkmanager
+  backoffLimit: 4
