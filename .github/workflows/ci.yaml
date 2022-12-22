@@ -3,7 +3,7 @@ env:
       # Container Image Name // update it as per project name.
       image_name: "docker-image"
       # Repo Name
-      GHCR_REPO: "ghcr.io/umangcypher-bh/Ark-docker"
+      GHCR_REPO: "ghcr.io/umangcypher-bh/ark-docker"
       # Path to the Dockerfile. (default {context}/Dockerfile)
       docker_file_path: "."
       # "location of lock file in git repository (Trivy will look for vulnerabilities based on lock files such as Gemfile.lock and package-lock.json)"  
